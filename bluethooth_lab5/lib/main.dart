@@ -1,106 +1,85 @@
-import 'dart:typed_data';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:path/path.dart' as path;
 
 void main() {
   runApp(const MyApp());
 }
 
+/// Aplicación principal
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Bluetooth File Transfer',
+      title: 'Compartir Archivos',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
       ),
-      home: const BluetoothPage(),
+      home: const FileSharePage(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
-class BluetoothPage extends StatefulWidget {
-  const BluetoothPage({super.key});
+/// Página principal de la app
+class FileSharePage extends StatefulWidget {
+  const FileSharePage({super.key});
 
   @override
-  State<BluetoothPage> createState() => _BluetoothPageState();
+  State<FileSharePage> createState() => _FileSharePageState();
 }
 
-class _BluetoothPageState extends State<BluetoothPage> {
-  List<BluetoothDevice> dispositivos = [];
-  BluetoothDevice? seleccionado;
-  String? archivoPath;
+class _FileSharePageState extends State<FileSharePage> {
   String estado = 'Esperando...';
+  File? archivoSeleccionado;
 
   @override
   void initState() {
     super.initState();
     solicitarPermisos();
-    obtenerDispositivosEmparejados();
   }
 
+  /// Solicita los permisos necesarios en Android
   Future<void> solicitarPermisos() async {
     await [
+      Permission.storage,
       Permission.bluetooth,
-      Permission.bluetoothScan,
       Permission.bluetoothConnect,
+      Permission.bluetoothScan,
       Permission.location,
-      Permission.storage
     ].request();
   }
 
-  Future<void> obtenerDispositivosEmparejados() async {
-    final dispositivosEmp = await FlutterBluetoothSerial.instance.getBondedDevices();
-    setState(() {
-      dispositivos = dispositivosEmp;
-    });
-  }
-
+  /// Selecciona un archivo desde el sistema
   Future<void> seleccionarArchivo() async {
-    final result = await FilePicker.platform.pickFiles();
-    if (result != null) {
+    final resultado = await FilePicker.platform.pickFiles();
+    if (resultado != null && resultado.files.single.path != null) {
       setState(() {
-        archivoPath = result.files.single.path;
+        archivoSeleccionado = File(resultado.files.single.path!);
+        estado = 'Archivo seleccionado: ${path.basename(archivoSeleccionado!.path)}';
       });
     }
   }
 
-  Future<void> enviarArchivo() async {
-    if (seleccionado == null || archivoPath == null) {
-      setState(() {
-        estado = 'Seleccione un dispositivo y un archivo';
-      });
+  /// Comparte el archivo con el sistema Android (Bluetooth, Nearby, WhatsApp, etc.)
+  Future<void> compartirArchivo() async {
+    if (archivoSeleccionado == null) {
+      setState(() => estado = 'Por favor, seleccione un archivo.');
       return;
     }
 
     try {
-      final connection = await BluetoothConnection.toAddress(seleccionado!.address);
-      setState(() {
-        estado = 'Conectado a ${seleccionado!.name}';
-      });
-
-      File archivo = File(archivoPath!);
-      Uint8List bytes = await archivo.readAsBytes();
-
-      connection.output.add(bytes);
-      await connection.output.allSent;
-
-      setState(() {
-        estado = 'Archivo enviado: ${path.basename(archivoPath!)}';
-      });
-
-      connection.finish();
+      await Share.shareXFiles([XFile(archivoSeleccionado!.path)], text: 'Te comparto este archivo 📎');
+      setState(() => estado = 'Archivo compartido correctamente.');
     } catch (e) {
-      setState(() {
-        estado = 'Error al enviar: $e';
-      });
+      setState(() => estado = 'Error al compartir: $e');
     }
   }
 
@@ -108,43 +87,31 @@ class _BluetoothPageState extends State<BluetoothPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bluetooth File Transfer'),
+        title: const Text('Compartir Archivos'),
+        centerTitle: true,
       ),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            DropdownButton<BluetoothDevice>(
-              hint: const Text('Seleccionar dispositivo'),
-              value: seleccionado,
-              onChanged: (nuevo) {
-                setState(() {
-                  seleccionado = nuevo;
-                });
-              },
-              items: dispositivos
-                  .map((d) => DropdownMenuItem(
-                        value: d,
-                        child: Text(d.name ?? d.address),
-                      ))
-                  .toList(),
-            ),
-            const SizedBox(height: 10),
             ElevatedButton(
               onPressed: seleccionarArchivo,
               child: const Text('Seleccionar archivo'),
             ),
-            if (archivoPath != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
-                child: Text('Archivo: ${path.basename(archivoPath!)}'),
-              ),
-            ElevatedButton(
-              onPressed: enviarArchivo,
-              child: const Text('Enviar archivo'),
-            ),
+            const SizedBox(height: 10),
+            if (archivoSeleccionado != null)
+              Text('Archivo: ${path.basename(archivoSeleccionado!.path)}'),
             const SizedBox(height: 20),
-            Text(estado, style: const TextStyle(fontWeight: FontWeight.bold)),
+            ElevatedButton(
+              onPressed: compartirArchivo,
+              child: const Text('Compartir archivo'),
+            ),
+            const SizedBox(height: 30),
+            Text(
+              estado,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),
